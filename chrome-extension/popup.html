@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OverallTube AI Settings</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="popup">
+      <h1 class="title">OverallTube AI</h1>
+      <p class="subtitle">Set Gemini/OpenAI key and response language for analysis</p>
+
+      <label for="gemini-api-key" class="label">Gemini API key</label>
+      <input
+        id="gemini-api-key"
+        class="input"
+        type="password"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="AIza..."
+      />
+
+      <label for="openai-api-key" class="label">OpenAI API key (fallback)</label>
+      <input
+        id="openai-api-key"
+        class="input"
+        type="password"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="sk-..."
+      />
+
+      <label for="language-select" class="label">LLM language</label>
+      <select id="language-select" class="select">
+        <option value="en">English</option>
+        <option value="ru">Russian</option>
+        <option value="uk">Ukrainian</option>
+      </select>
+
+      <p id="save-status" class="status" aria-live="polite"></p>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
