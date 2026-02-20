@@ -1,15 +1,18 @@
 # OverallTube
 
-OverallTube is a Chrome extension that adds an AI panel to YouTube, instantly turning video transcripts into clear summaries or critical reviews - right on the watch page.
+OverallTube is a Chrome extension that integrates an AI panel directly into YouTube, instantly converting video transcripts into concise summaries and insightful reviews, while also allowing users to ask questions about the video on the watch page.
 
 ## Features
 
-- Injects a small panel into YouTube watch pages
-- Generates two response modes:
+- Injects a compact AI panel into YouTube watch pages
+- Supports 55 response languages for analysis and Q&A
+- Provides three interaction modes:
   - Critical Review
   - Summary
-- Extracts transcripts with multiple fallback strategies
-- Uses Gemini/OpenAI
+  - Ask (chat-style questions about the current video transcript)
+- Uses transcript extraction with multiple fallback strategies
+- Caches transcript data per video/language for faster repeated requests
+- Uses Gemini/OpenAI (Gemini with fallback model retries)
 
 ## Local Setup
 
@@ -24,9 +27,9 @@ OverallTube is a Chrome extension that adds an AI panel to YouTube, instantly tu
 ## Usage
 
 1. Open any YouTube video page (`/watch`).
-2. Select output language in the injected panel.
-3. Click **Critical Review** or **Summary**.
-4. Read the generated result in the modal window.
+2. Select one of the 55 supported languages in the injected panel.
+3. Choose **Critical Review**, **Summary**, or **Ask**.
+4. Read the generated result in the modal window (or continue the Ask conversation about the same video).
 
 ## Privacy Notes
 
