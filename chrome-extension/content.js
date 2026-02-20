@@ -1,10 +1,70 @@
 const PANEL_ID = "vfce-panel";
 const MODAL_ID = "vfce-modal";
 const BUTTON_BUSY_CLASS = "vfce-button--busy";
+const CHAT_SEND_BUSY_CLASS = "vfce-chat-send--busy";
+const PANEL_ICON_URL = chrome.runtime.getURL("icons/icon-16.png");
 const RESPONSE_LANGUAGE_KEY = "responseLanguage";
-const DEFAULT_RESPONSE_LANGUAGE = "ru";
-const SUPPORTED_LANGUAGES = ["en", "ru", "uk"];
+const DEFAULT_RESPONSE_LANGUAGE = "en";
+const RESPONSE_LANGUAGE_OPTIONS = [
+  { code: "en", label: "English" },
+  { code: "es", label: "Español" },
+  { code: "fr", label: "Français" },
+  { code: "pt", label: "Português" },
+  { code: "ru", label: "Русский" },
+  { code: "de", label: "Deutsch" },
+  { code: "it", label: "Italiano" },
+  { code: "pl", label: "Polski" },
+  { code: "uk", label: "Українська" },
+  { code: "ro", label: "Română" },
+  { code: "nl", label: "Nederlands" },
+  { code: "bg", label: "Български" },
+  { code: "hr", label: "Hrvatski" },
+  { code: "cs", label: "Čeština" },
+  { code: "da", label: "Dansk" },
+  { code: "et", label: "Eesti" },
+  { code: "fi", label: "Suomi" },
+  { code: "el", label: "Ελληνικά" },
+  { code: "hu", label: "Magyar" },
+  { code: "ga", label: "Gaeilge" },
+  { code: "lv", label: "Latviešu" },
+  { code: "lt", label: "Lietuvių" },
+  { code: "mt", label: "Malti" },
+  { code: "sk", label: "Slovenčina" },
+  { code: "sl", label: "Slovenščina" },
+  { code: "sv", label: "Svenska" },
+  { code: "zh", label: "中文（普通话）" },
+  { code: "hi", label: "हिन्दी" },
+  { code: "bn", label: "বাংলা" },
+  { code: "ur", label: "اردو" },
+  { code: "id", label: "Bahasa Indonesia" },
+  { code: "ja", label: "日本語" },
+  { code: "mr", label: "मराठी" },
+  { code: "te", label: "తెలుగు" },
+  { code: "tr", label: "Türkçe" },
+  { code: "ta", label: "தமிழ்" },
+  { code: "yue", label: "粵語" },
+  { code: "ko", label: "한국어" },
+  { code: "vi", label: "Tiếng Việt" },
+  { code: "th", label: "ไทย" },
+  { code: "gu", label: "ગુજરાતી" },
+  { code: "fa", label: "فارسی" },
+  { code: "ms", label: "Bahasa Melayu" },
+  { code: "kn", label: "ಕನ್ನಡ" },
+  { code: "or", label: "ଓଡ଼ିଆ" },
+  { code: "pa", label: "ਪੰਜਾਬੀ" },
+  { code: "my", label: "မြန်မာဘာသာ" },
+  { code: "uz", label: "O‘zbek" },
+  { code: "si", label: "සිංහල" },
+  { code: "ml", label: "മലയാളം" },
+  { code: "ar", label: "العربية" },
+  { code: "sw", label: "Kiswahili" },
+  { code: "ha", label: "Hausa" },
+  { code: "am", label: "አማርኛ" },
+  { code: "zu", label: "isiZulu" },
+];
+const SUPPORTED_LANGUAGES = RESPONSE_LANGUAGE_OPTIONS.map((option) => option.code);
 const ANALYSIS_CACHE = new Map();
+const CHAT_SESSIONS = new Map();
 const YOUTUBE_WATCH_URL = "https://www.youtube.com/watch?v=";
 const TRANSCRIPT_PANEL_SELECTOR =
   'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]';
@@ -13,7 +73,7 @@ const TRANSCRIPT_SEGMENT_SELECTOR = "ytd-transcript-segment-renderer";
 let activeRequestCount = 0;
 
 function getPreferredLanguages(primaryLanguage) {
-  const languageOrder = [primaryLanguage, "en", "ru", "uk"];
+  const languageOrder = [primaryLanguage, "en"];
   return languageOrder.filter((lang, index) => languageOrder.indexOf(lang) === index);
 }
 
@@ -435,6 +495,18 @@ function getCacheKey(mode, language) {
   return `${getCurrentVideoId()}::${mode}::${language}`;
 }
 
+function getChatSessionKey(language) {
+  return `${getCurrentVideoId()}::chat::${language}`;
+}
+
+function getOrCreateChatSession(language) {
+  const key = getChatSessionKey(language);
+  if (!CHAT_SESSIONS.has(key)) {
+    CHAT_SESSIONS.set(key, { messages: [] });
+  }
+  return CHAT_SESSIONS.get(key);
+}
+
 function lockPageScroll() {
   document.documentElement.classList.add("vfce-no-scroll");
   document.body.classList.add("vfce-no-scroll");
@@ -481,7 +553,7 @@ function ensureModal() {
   return overlay;
 }
 
-function showModal(title, text) {
+function showTextModal(title, text) {
   const overlay = ensureModal();
   const titleEl = overlay.querySelector(".vfce-modal-title");
   const bodyEl = overlay.querySelector(".vfce-modal-body");
@@ -491,8 +563,148 @@ function showModal(title, text) {
   }
 
   if (bodyEl) {
+    bodyEl.classList.remove("vfce-chat-mode");
     bodyEl.textContent = text;
   }
+
+  overlay.classList.add("vfce-visible");
+  lockPageScroll();
+}
+
+function scrollChatToBottom(threadEl) {
+  if (!threadEl) {
+    return;
+  }
+  threadEl.scrollTop = threadEl.scrollHeight;
+}
+
+function renderChatMessages(threadEl, messages) {
+  if (!threadEl) {
+    return;
+  }
+
+  threadEl.innerHTML = "";
+  for (const message of messages) {
+    const item = document.createElement("div");
+    item.className = `vfce-chat-message vfce-chat-message--${message.role}`;
+    item.textContent = message.text;
+    threadEl.appendChild(item);
+  }
+
+  if (messages.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "vfce-chat-empty";
+    empty.textContent = "Ask any question about this video.";
+    threadEl.appendChild(empty);
+  }
+
+  scrollChatToBottom(threadEl);
+}
+
+function setChatComposerState(inputEl, submitButton, isBusy) {
+  if (inputEl) {
+    inputEl.disabled = isBusy;
+  }
+  if (submitButton) {
+    submitButton.disabled = isBusy;
+    submitButton.classList.toggle(CHAT_SEND_BUSY_CLASS, isBusy);
+  }
+}
+
+function showAskModal(language) {
+  const safeLanguage = getSafeLanguage(language);
+  const session = getOrCreateChatSession(safeLanguage);
+  const overlay = ensureModal();
+  const titleEl = overlay.querySelector(".vfce-modal-title");
+  const bodyEl = overlay.querySelector(".vfce-modal-body");
+
+  if (!bodyEl) {
+    return;
+  }
+
+  if (titleEl) {
+    titleEl.textContent = "Ask about this video";
+  }
+
+  bodyEl.classList.add("vfce-chat-mode");
+  bodyEl.innerHTML = `
+    <div class="vfce-chat-thread"></div>
+    <form class="vfce-chat-composer">
+      <input
+        type="text"
+        class="vfce-chat-input"
+        placeholder="Type your question..."
+        autocomplete="off"
+      />
+      <button type="submit" class="vfce-chat-send">
+        <span class="vfce-chat-send-label">Send</span>
+        <span class="vfce-chat-send-spinner" aria-hidden="true"></span>
+      </button>
+    </form>
+  `;
+
+  const threadEl = bodyEl.querySelector(".vfce-chat-thread");
+  const formEl = bodyEl.querySelector(".vfce-chat-composer");
+  const inputEl = bodyEl.querySelector(".vfce-chat-input");
+  const submitButton = bodyEl.querySelector(".vfce-chat-send");
+
+  renderChatMessages(threadEl, session.messages);
+  setChatComposerState(inputEl, submitButton, false);
+  inputEl?.focus();
+
+  formEl?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!inputEl || !submitButton) {
+      return;
+    }
+
+    const question = inputEl.value.trim();
+    if (!question) {
+      return;
+    }
+
+    const history = session.messages.slice(-10);
+    session.messages.push({ role: "user", text: question });
+    renderChatMessages(threadEl, session.messages);
+    inputEl.value = "";
+    setChatComposerState(inputEl, submitButton, true);
+
+    chrome.runtime.sendMessage(
+      {
+        type: "ASK_VIDEO_QUESTION",
+        payload: {
+          youtubeUrl: getCurrentVideoUrl(),
+          language: safeLanguage,
+          question,
+          history,
+        },
+      },
+      (response) => {
+        setChatComposerState(inputEl, submitButton, false);
+
+        if (chrome.runtime.lastError) {
+          session.messages.push({
+            role: "assistant",
+            text: "Не удалось связаться с background-скриптом расширения.",
+          });
+          renderChatMessages(threadEl, session.messages);
+          return;
+        }
+
+        if (!response?.ok) {
+          session.messages.push({
+            role: "assistant",
+            text: response?.error || "Неизвестная ошибка API.",
+          });
+          renderChatMessages(threadEl, session.messages);
+          return;
+        }
+
+        session.messages.push({ role: "assistant", text: response.answer });
+        renderChatMessages(threadEl, session.messages);
+      }
+    );
+  });
 
   overlay.classList.add("vfce-visible");
   lockPageScroll();
@@ -537,28 +749,60 @@ function getSafeLanguage(language) {
     : DEFAULT_RESPONSE_LANGUAGE;
 }
 
+function adjustLanguageSelectWidth(select) {
+  if (!select) {
+    return;
+  }
+
+  const selectedOption = select.options[select.selectedIndex];
+  const label = selectedOption?.textContent || "";
+  const computedStyle = window.getComputedStyle(select);
+  const font = computedStyle.font || `${computedStyle.fontWeight} ${computedStyle.fontSize} ${computedStyle.fontFamily}`;
+  const textMeasureCanvas =
+    adjustLanguageSelectWidth.canvas ||
+    (adjustLanguageSelectWidth.canvas = document.createElement("canvas"));
+  const context = textMeasureCanvas.getContext("2d");
+  if (!context) {
+    return;
+  }
+
+  context.font = font;
+  const textWidth = Math.ceil(context.measureText(label).width);
+  const leftPadding = parseFloat(computedStyle.paddingLeft) || 0;
+  const rightPadding = parseFloat(computedStyle.paddingRight) || 0;
+  const borderLeft = parseFloat(computedStyle.borderLeftWidth) || 0;
+  const borderRight = parseFloat(computedStyle.borderRightWidth) || 0;
+  const totalWidth = textWidth + leftPadding + rightPadding + borderLeft + borderRight;
+
+  select.style.width = `${Math.ceil(totalWidth)}px`;
+}
+
 function createLanguageSelect() {
   const select = document.createElement("select");
   select.className = "vfce-language-select";
   select.setAttribute("aria-label", "LLM response language");
-  select.innerHTML = `
-    <option value="en">EN</option>
-    <option value="ru">RU</option>
-    <option value="uk">UK</option>
-  `;
+  for (const option of RESPONSE_LANGUAGE_OPTIONS) {
+    const optionEl = document.createElement("option");
+    optionEl.value = option.code;
+    optionEl.textContent = option.label;
+    select.appendChild(optionEl);
+  }
 
   chrome.storage.local.get(
     { [RESPONSE_LANGUAGE_KEY]: DEFAULT_RESPONSE_LANGUAGE },
     (items) => {
       select.value = getSafeLanguage(items[RESPONSE_LANGUAGE_KEY]);
+      adjustLanguageSelectWidth(select);
     }
   );
 
   select.addEventListener("change", () => {
     const language = getSafeLanguage(select.value);
     chrome.storage.local.set({ [RESPONSE_LANGUAGE_KEY]: language });
+    adjustLanguageSelectWidth(select);
   });
 
+  adjustLanguageSelectWidth(select);
   return select;
 }
 
@@ -569,7 +813,9 @@ function createButton(label, mode, title, getSelectedLanguage) {
   button.title = title;
   button.innerHTML = `
     <span class="vfce-label">${label}</span>
-    <span class="vfce-spinner" aria-hidden="true"></span>
+    <span class="vfce-spinner-slot" aria-hidden="true">
+      <span class="vfce-spinner"></span>
+    </span>
   `;
 
   button.addEventListener("click", () => {
@@ -580,7 +826,7 @@ function createButton(label, mode, title, getSelectedLanguage) {
 
     if (cachedAnalysis) {
       const cachedTitle = mode === "critical" ? "Critical Review" : "Summary";
-      showModal(cachedTitle, cachedAnalysis);
+      showTextModal(cachedTitle, cachedAnalysis);
       return;
     }
 
@@ -599,7 +845,7 @@ function createButton(label, mode, title, getSelectedLanguage) {
         setRequestInProgress(button, false);
 
         if (chrome.runtime.lastError) {
-          showModal(
+          showTextModal(
             "Connection Error",
             "Не удалось связаться с background-скриптом расширения."
           );
@@ -607,7 +853,7 @@ function createButton(label, mode, title, getSelectedLanguage) {
         }
 
         if (!response?.ok) {
-          showModal("Request Failed", response?.error || "Неизвестная ошибка API.");
+          showTextModal("Request Failed", response?.error || "Неизвестная ошибка API.");
           return;
         }
 
@@ -615,11 +861,23 @@ function createButton(label, mode, title, getSelectedLanguage) {
           mode === "critical" ? "Critical Review" : "Summary";
 
         ANALYSIS_CACHE.set(cacheKey, response.analysis);
-        showModal(resultTitle, response.analysis);
+        showTextModal(resultTitle, response.analysis);
       }
     );
   });
 
+  return button;
+}
+
+function createAskButton(getSelectedLanguage) {
+  const button = document.createElement("button");
+  button.className = "vfce-button";
+  button.type = "button";
+  button.title = "Ask about this video";
+  button.innerHTML = '<span class="vfce-label">Ask</span>';
+  button.addEventListener("click", () => {
+    showAskModal(getSelectedLanguage());
+  });
   return button;
 }
 
@@ -634,8 +892,8 @@ function mountPanel() {
   panel.className = "vfce-panel";
   panel.innerHTML = `
     <div class="vfce-branding">
-      <span class="vfce-dot"></span>
-      <span class="vfce-title">OverallTube AI</span>
+      <img class="vfce-logo" src="${PANEL_ICON_URL}" alt="" />
+      <span class="vfce-title">OverallTube</span>
     </div>
     <div class="vfce-actions"></div>
   `;
@@ -654,7 +912,8 @@ function mountPanel() {
       "Critical Review",
       getSelectedLanguage
     ),
-    createButton("Summary", "summary", "Summary", getSelectedLanguage)
+    createButton("Summary", "summary", "Summary", getSelectedLanguage),
+    createAskButton(getSelectedLanguage)
   );
 
   comments.parentElement?.insertBefore(panel, comments);

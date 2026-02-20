@@ -18,6 +18,15 @@ body {
   margin: 0;
   font-size: 16px;
   font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.title-icon {
+  width: 16px;
+  height: 16px;
+  display: block;
 }
 
 .subtitle {
