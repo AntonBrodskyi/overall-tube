@@ -3,7 +3,7 @@
   "name": "OverallTube",
   "short_name": "OverallTube",
   "description": "AI critical review and summary panel for YouTube videos.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "minimum_chrome_version": "116",
   "permissions": [
     "storage"
@@ -34,7 +34,7 @@
   "content_scripts": [
     {
       "matches": [
-        "https://www.youtube.com/watch*"
+        "https://www.youtube.com/*"
       ],
       "js": [
         "content.js"

@@ -919,12 +919,24 @@ function mountPanel() {
   comments.parentElement?.insertBefore(panel, comments);
 }
 
+function isWatchPage() {
+  return window.location.pathname === "/watch";
+}
+
+function removePanel() {
+  document.getElementById(PANEL_ID)?.remove();
+}
+
 function setupPageObservers() {
-  mountPanel();
+  if (isWatchPage()) {
+    mountPanel();
+  }
   ensureModal();
 
   const observer = new MutationObserver(() => {
-    mountPanel();
+    if (isWatchPage()) {
+      mountPanel();
+    }
   });
 
   observer.observe(document.documentElement, {
@@ -933,7 +945,10 @@ function setupPageObservers() {
   });
 
   document.addEventListener("yt-navigate-finish", () => {
-    mountPanel();
+    removePanel();
+    if (isWatchPage()) {
+      mountPanel();
+    }
   });
 }
 
