@@ -37,23 +37,6 @@ OverallTube is a Chrome extension that integrates an AI panel directly into YouT
 - Transcript text is sent to the configured LLM provider (Gemini/OpenAI) to generate a response.
 - This project does not run a backend server and does not collect analytics by default.
 
-## Chrome Web Store Release
-
-1. Prepare listing text and policy docs:
-   - `docs/chrome-web-store/store-listing.md`
-   - `docs/chrome-web-store/privacy-policy.md`
-   - `docs/chrome-web-store/submission-checklist.md`
-2. Host privacy policy on a public URL (required by Chrome Web Store).
-3. Build upload artifact:
-   - `bash scripts/release-chrome.sh`
-   - Output zip appears in `release/`
-4. In Chrome Web Store Developer Dashboard:
-   - Upload the zip package
-   - Fill in listing fields using `store-listing.md`
-   - Provide privacy policy URL
-   - Add screenshots (at least one required)
-   - Complete Privacy practices questionnaire
-
 ## License
 
 This project is licensed under the MIT License. See `LICENSE` for details.
