@@ -69,6 +69,10 @@ const TRANSCRIPT_CACHE = new Map();
 const MAX_HISTORY_MESSAGES = 12;
 const OUTPUT_RULES =
   "Return only the answer content. Do not add introductory or concluding phrases. Return plain text only: no markdown, no headings, no bullet points, no quotes, and no extra formatting. Split the response into short readable paragraphs.";
+function buildStrictLanguageRule(language) {
+  const languageName = getLanguageName(language);
+  return `CRITICAL LANGUAGE REQUIREMENT: Write the entire final answer in ${languageName} (${language}) only. This rule is mandatory and has highest priority over transcript language and conversation history language. Never answer in the transcript language unless it is exactly ${languageName}. If the transcript or user question is in another language, first translate the meaning internally, then output only in ${languageName}. Keep proper nouns, product names, and direct quotes unchanged, but all surrounding words must be in ${languageName}. Before finalizing, silently verify that the response is in ${languageName} only.`;
+}
 
 function extractVideoId(youtubeUrl) {
   try {
@@ -302,7 +306,7 @@ function buildAnalysisPrompt(mode, language, transcriptText) {
       ? "Provide a brief summary of this YouTube video based on the transcript. Focus on the main topics and key points."
       : "Analyze this YouTube transcript using critical thinking. Verify claims, identify possible biases, and provide a balanced review of the information.";
 
-  return `${analysisInstruction} Keep the response around 200 words and write it in ${languageName}.\n\n${OUTPUT_RULES}\n\nTranscript: ${transcriptText}`;
+  return `${analysisInstruction} Keep the response around 200 words.\n\n${buildStrictLanguageRule(language)}\n\n${OUTPUT_RULES}\n\nTranscript: ${transcriptText}`;
 }
 
 function buildAskPrompt(language, transcriptText, question, history) {
@@ -312,7 +316,7 @@ function buildAskPrompt(language, transcriptText, question, history) {
         .join("\n")
     : "No previous conversation.";
 
-  return `Answer the user's question using only this YouTube video transcript. If the transcript does not contain enough information, explicitly say that there is not enough information in the transcript. Respond in ${getLanguageName(language)}.\n\n${OUTPUT_RULES}\n\nConversation history:\n${historyBlock}\n\nCurrent user question: ${question}\n\nTranscript: ${transcriptText}`;
+  return `Answer the user's question using only this YouTube video transcript. If the transcript does not contain enough information, explicitly say that there is not enough information in the transcript.\n\n${buildStrictLanguageRule(language)}\n\n${OUTPUT_RULES}\n\nConversation history:\n${historyBlock}\n\nCurrent user question: ${question}\n\nTranscript: ${transcriptText}`;
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -320,7 +324,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
 
-  const { youtubeUrl, mode, language: requestedLanguage, question, history } = message.payload ?? {};
+  const {
+    youtubeUrl,
+    mode,
+    language: requestedLanguage,
+    question,
+    history,
+    transcriptText: providedTranscriptText,
+  } = message.payload ?? {};
   const isAskRequest = message?.type === "ASK_VIDEO_QUESTION";
   const language = SUPPORTED_LANGUAGES.includes(requestedLanguage)
     ? requestedLanguage
@@ -345,7 +356,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         throw new Error("Active tab is unavailable.");
       }
 
-      const transcriptText = await getTranscriptForRequest(tabId, videoId, resolvedLanguage);
+      const safeProvidedTranscriptText = String(providedTranscriptText || "").trim();
+      const transcriptText =
+        isAskRequest && safeProvidedTranscriptText
+          ? safeProvidedTranscriptText
+          : await getTranscriptForRequest(tabId, videoId, resolvedLanguage);
       if (isAskRequest && !String(question || "").trim()) {
         throw new Error("Question is required.");
       }
@@ -366,7 +381,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           )
         : await callOpenAiModel(openaiApiKey, prompt);
 
-      sendResponse(isAskRequest ? { ok: true, answer: llmText } : { ok: true, analysis: llmText });
+      sendResponse(
+        isAskRequest
+          ? { ok: true, answer: llmText }
+          : { ok: true, analysis: llmText, transcriptText }
+      );
     })
     .catch((error) => {
       sendResponse({

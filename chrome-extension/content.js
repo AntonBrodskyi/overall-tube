@@ -502,9 +502,32 @@ function getChatSessionKey(language) {
 function getOrCreateChatSession(language) {
   const key = getChatSessionKey(language);
   if (!CHAT_SESSIONS.has(key)) {
-    CHAT_SESSIONS.set(key, { messages: [] });
+    CHAT_SESSIONS.set(key, { messages: [], transcriptText: "" });
   }
   return CHAT_SESSIONS.get(key);
+}
+
+function seedChatFromAnalysis(language, analysisText, transcriptText) {
+  const safeLanguage = getSafeLanguage(language);
+  const session = getOrCreateChatSession(safeLanguage);
+  const safeAnalysisText = String(analysisText || "").trim();
+  const safeTranscriptText = String(transcriptText || "").trim();
+
+  if (safeTranscriptText) {
+    session.transcriptText = safeTranscriptText;
+  }
+
+  if (!safeAnalysisText) {
+    return;
+  }
+
+  const firstMessage = session.messages[0];
+  const hasSameSummaryAtTop =
+    firstMessage?.role === "assistant" && firstMessage?.text === safeAnalysisText;
+
+  if (!hasSameSummaryAtTop) {
+    session.messages.unshift({ role: "assistant", text: safeAnalysisText });
+  }
 }
 
 function lockPageScroll() {
@@ -553,7 +576,7 @@ function ensureModal() {
   return overlay;
 }
 
-function showTextModal(title, text) {
+function showTextModal(title, text, options = {}) {
   const overlay = ensureModal();
   const titleEl = overlay.querySelector(".vfce-modal-title");
   const bodyEl = overlay.querySelector(".vfce-modal-body");
@@ -564,7 +587,28 @@ function showTextModal(title, text) {
 
   if (bodyEl) {
     bodyEl.classList.remove("vfce-chat-mode");
-    bodyEl.textContent = text;
+    bodyEl.classList.add("vfce-text-mode");
+    bodyEl.innerHTML = `
+      <div class="vfce-text-content"></div>
+      <div class="vfce-modal-actions"></div>
+    `;
+
+    const contentEl = bodyEl.querySelector(".vfce-text-content");
+    if (contentEl) {
+      contentEl.textContent = text;
+    }
+
+    const actionsEl = bodyEl.querySelector(".vfce-modal-actions");
+    if (actionsEl && typeof options.onGoToChat === "function") {
+      const goToChatButton = document.createElement("button");
+      goToChatButton.className = "vfce-go-chat-button";
+      goToChatButton.type = "button";
+      goToChatButton.textContent = "Go to chat \u2192";
+      goToChatButton.addEventListener("click", () => {
+        options.onGoToChat();
+      });
+      actionsEl.appendChild(goToChatButton);
+    }
   }
 
   overlay.classList.add("vfce-visible");
@@ -626,6 +670,7 @@ function showAskModal(language) {
     titleEl.textContent = "Ask about this video";
   }
 
+  bodyEl.classList.remove("vfce-text-mode");
   bodyEl.classList.add("vfce-chat-mode");
   bodyEl.innerHTML = `
     <div class="vfce-chat-thread"></div>
@@ -677,6 +722,7 @@ function showAskModal(language) {
           language: safeLanguage,
           question,
           history,
+          transcriptText: session.transcriptText || "",
         },
       },
       (response) => {
@@ -822,11 +868,24 @@ function createButton(label, mode, title, getSelectedLanguage) {
     const youtubeUrl = getCurrentVideoUrl();
     const language = getSelectedLanguage();
     const cacheKey = getCacheKey(mode, language);
-    const cachedAnalysis = ANALYSIS_CACHE.get(cacheKey);
+    const cachedResult = ANALYSIS_CACHE.get(cacheKey);
 
-    if (cachedAnalysis) {
+    if (cachedResult) {
+      const cachedAnalysis =
+        typeof cachedResult === "string"
+          ? cachedResult
+          : String(cachedResult.analysis || "").trim();
+      const cachedTranscript =
+        typeof cachedResult === "string"
+          ? ""
+          : String(cachedResult.transcriptText || "").trim();
       const cachedTitle = mode === "critical" ? "Critical Review" : "Summary";
-      showTextModal(cachedTitle, cachedAnalysis);
+      showTextModal(cachedTitle, cachedAnalysis, {
+        onGoToChat: () => {
+          seedChatFromAnalysis(language, cachedAnalysis, cachedTranscript);
+          showAskModal(language);
+        },
+      });
       return;
     }
 
@@ -860,8 +919,19 @@ function createButton(label, mode, title, getSelectedLanguage) {
         const resultTitle =
           mode === "critical" ? "Critical Review" : "Summary";
 
-        ANALYSIS_CACHE.set(cacheKey, response.analysis);
-        showTextModal(resultTitle, response.analysis);
+        const analysisText = String(response.analysis || "").trim();
+        const transcriptText = String(response.transcriptText || "").trim();
+
+        ANALYSIS_CACHE.set(cacheKey, {
+          analysis: analysisText,
+          transcriptText,
+        });
+        showTextModal(resultTitle, analysisText, {
+          onGoToChat: () => {
+            seedChatFromAnalysis(language, analysisText, transcriptText);
+            showAskModal(language);
+          },
+        });
       }
     );
   });
