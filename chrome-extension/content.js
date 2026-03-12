@@ -66,9 +66,25 @@ const SUPPORTED_LANGUAGES = RESPONSE_LANGUAGE_OPTIONS.map((option) => option.cod
 const ANALYSIS_CACHE = new Map();
 const CHAT_SESSIONS = new Map();
 const YOUTUBE_WATCH_URL = "https://www.youtube.com/watch?v=";
-const TRANSCRIPT_PANEL_SELECTOR =
-  'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]';
-const TRANSCRIPT_SEGMENT_SELECTOR = "ytd-transcript-segment-renderer";
+const TRANSCRIPT_PANEL_SELECTORS = [
+  'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]',
+  'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript-search-panel"]',
+  'ytd-engagement-panel-section-list-renderer[target-id*="transcript" i]',
+];
+const TRANSCRIPT_SEGMENT_SELECTORS = [
+  "ytd-transcript-segment-renderer",
+  "ytd-transcript-segment-list-renderer ytd-transcript-segment-renderer",
+  "transcript-segment-view-model",
+  ".ytwTranscriptSegmentViewModelHost",
+];
+const TRANSCRIPT_TEXT_SELECTORS = [
+  ".segment-text",
+  "#segment-text",
+  ".yt-core-attributed-string[role='text']",
+  "span.yt-core-attributed-string[role='text']",
+  "yt-formatted-string.segment-text",
+  "yt-formatted-string",
+];
 
 let activeRequestCount = 0;
 
@@ -209,24 +225,74 @@ function sleep(ms) {
 }
 
 function extractTranscriptFromDom() {
-  const segments = document.querySelectorAll(TRANSCRIPT_SEGMENT_SELECTOR);
-  if (!segments || segments.length === 0) {
+  let segments = [];
+  for (const selector of TRANSCRIPT_SEGMENT_SELECTORS) {
+    const found = document.querySelectorAll(selector);
+    if (found.length) {
+      segments = Array.from(found);
+      break;
+    }
+  }
+
+  if (!segments.length) {
     return "";
   }
 
-  const text = Array.from(segments)
+  const text = segments
     .map((segment) => {
-      const textEl = segment.querySelector(".segment-text");
-      return textEl ? textEl.textContent || "" : "";
+      for (const textSelector of TRANSCRIPT_TEXT_SELECTORS) {
+        const textEl = segment.querySelector(textSelector);
+        const raw = normalizeTranscriptText(textEl?.textContent || "");
+        if (raw) {
+          return raw;
+        }
+      }
+
+      // Fallback for UI variants where transcript text is rendered without old classes.
+      const fallbackText = normalizeTranscriptText(segment.textContent || "");
+      return fallbackText.replace(/^\d{1,2}:\d{2}(?::\d{2})?\s+/, "");
     })
     .join(" ");
 
   return normalizeTranscriptText(text);
 }
 
+function hasTranscriptSegmentsInDom() {
+  return TRANSCRIPT_SEGMENT_SELECTORS.some(
+    (selector) => document.querySelectorAll(selector).length > 0
+  );
+}
+
 function isTranscriptPanelVisible() {
-  const panel = document.querySelector(TRANSCRIPT_PANEL_SELECTOR);
+  if (hasTranscriptSegmentsInDom()) {
+    return true;
+  }
+
+  const panel = TRANSCRIPT_PANEL_SELECTORS.map((selector) =>
+    document.querySelector(selector)
+  ).find(Boolean);
   if (!panel) {
+    const genericPanels = document.querySelectorAll(
+      "ytd-engagement-panel-section-list-renderer"
+    );
+    for (const genericPanel of genericPanels) {
+      const panelText = normalizeTranscriptText(
+        (genericPanel.textContent || "").toLowerCase()
+      );
+      if (!panelText) {
+        continue;
+      }
+      if (
+        panelText.includes("transcript") ||
+        panelText.includes("расшифров") ||
+        panelText.includes("стенограм")
+      ) {
+        const visibility = genericPanel.getAttribute("visibility");
+        if (!visibility || visibility !== "ENGAGEMENT_PANEL_VISIBILITY_HIDDEN") {
+          return true;
+        }
+      }
+    }
     return false;
   }
 
@@ -275,7 +341,13 @@ async function openTranscriptPanelIfNeeded() {
   }
 
   const directButtons = document.querySelectorAll(
-    'button[aria-label*="transcript" i], button[aria-label*="текст" i], button[aria-label*="стенограм" i]'
+    [
+      'button[aria-label*="transcript" i]',
+      'button[aria-label*="текст" i]',
+      'button[aria-label*="стенограм" i]',
+      'button[aria-label*="show transcript" i]',
+      'button[aria-label*="show video transcript" i]',
+    ].join(", ")
   );
   for (const button of directButtons) {
     if (button instanceof HTMLElement) {
@@ -288,7 +360,12 @@ async function openTranscriptPanelIfNeeded() {
   }
 
   const moreButton = document.querySelector(
-    'ytd-menu-renderer yt-icon-button button[aria-label], button[aria-label="More actions"]'
+    [
+      'ytd-menu-renderer yt-icon-button button[aria-label]',
+      'button[aria-label="More actions"]',
+      'button[aria-label*="more" i][aria-haspopup="true"]',
+      '#above-the-fold ytd-menu-renderer button[aria-label]',
+    ].join(", ")
   );
   if (moreButton instanceof HTMLElement) {
     moreButton.click();
