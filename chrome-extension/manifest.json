@@ -3,7 +3,7 @@
   "name": "OverallTube",
   "short_name": "OverallTube",
   "description": "AI critical review and summary panel for YouTube videos.",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "minimum_chrome_version": "116",
   "permissions": [
     "storage"
